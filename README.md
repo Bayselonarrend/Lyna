@@ -1,8 +1,6 @@
- <img src="media/logo_m.png?1" align="left" width="64"> 
- 
-# Луна
-
-Механизм запуска Lua-скриптов внутри OneScript
+<img src="media/logo_m.png?1" align="left" width="64"> 
+<h1>Луна</h1>
+<p>Механизм запуска Lua-скриптов внутри OneScript</p>
 
 ## Описание
 
