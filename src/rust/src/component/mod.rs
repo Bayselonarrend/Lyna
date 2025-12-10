@@ -1,6 +1,6 @@
 mod lua_engine;
-mod lua_packages;
 mod lua_globals;
+mod lua_packages;
 mod lua_utils;
 mod lua_functions;
 
@@ -116,10 +116,20 @@ pub fn cal_func(obj: &mut AddIn, num: usize, params: &mut [Variant]) -> Box<dyn 
             }
             let var_name = params[0].get_string().unwrap_or_default();
             let value_json = params[1].get_string().unwrap_or_default();
-            
-            let value: serde_json::Value = match serde_json::from_str(&value_json) {
+
+            let parsed_value: serde_json::Value = match serde_json::from_str(&value_json) {
                 Ok(value) => value,
                 Err(e) => return Box::new(format_json_error(&format!("Invalid JSON value: {}", e))),
+            };
+
+            let value = match &parsed_value {
+                serde_json::Value::Object(obj) => {
+                    match obj.get("data") {
+                        Some(data) => data.clone(),
+                        None => return Box::new(format_json_error("Missing 'data' key in value object")),
+                    }
+                },
+                _ => return Box::new(format_json_error("Value must be an object with 'data' key")),
             };
             
             match engine.set_global(&var_name, value) {
