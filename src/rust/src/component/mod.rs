@@ -1,236 +1,191 @@
-mod scheduler;
+mod lua_engine;
+mod lua_packages;
+mod lua_globals;
+mod lua_utils;
+mod lua_functions;
 
 use std::sync::{Arc, Mutex};
 use addin1c::{name, Variant};
-use serde_json::{json, Value};
-use crate::component::scheduler::CronScheduler;
+use serde_json::json;
 use crate::core::getset;
-
-// МЕТОДЫ КОМПОНЕНТЫ -------------------------------------------------------------------------------
+use lua_engine::LuaEngine;
 
 pub const METHODS: &[&[u16]] = &[
-    name!("Init"),
-    name!("NextEvent"),
-    name!("AddJob"),
-    name!("RemoveJob"),
-    name!("UpdateJob"),
-    name!("DisableJob"),
-    name!("EnableJob"),
-    name!("GetJobList")
+    name!("ExecuteString"),       // 0 - Выполнить Lua код из строки
+    name!("ExecuteFile"),         // 1 - Выполнить Lua код из файла
+    name!("ExecuteBytecode"),     // 2 - Выполнить предкомпилированный байт-код
+    name!("CompileToBytecode"),   // 3 - Компилировать код в байт-код
+    name!("CallFunction"),        // 4 - Вызвать функцию Lua
+    name!("SetGlobal"),           // 5 - Установить глобальную переменную
+    name!("GetGlobal"),           // 6 - Получить глобальную переменную
+    name!("AddPackage"),          // 7 - Добавить пакет Lua
+    name!("LoadPackageFromFile"), // 8 - Загрузить пакет из файла
+    name!("GetPackages"),         // 9 - Получить список пакетов
+    name!("Reset"),               // 10 - Сбросить состояние Lua
 ];
 
 pub fn get_params_amount(num: usize) -> usize {
     match num {
-        0 => 1, // Init
-        1 => 0, // NextEvent
-        2 => 2, // AddJob (name, schedule)
-        3 => 1, // RemoveJob (name)
-        4 => 2, // UpdateJob (name, new_schedule)
-        5 => 1, // DisableJob (name)
-        6 => 1, // EnableJob (name)
-        7 => 0, // GetJobList
+        0 => 1,  // ExecuteString - код
+        1 => 1,  // ExecuteFile - путь к файлу
+        2 => 1,  // ExecuteBytecode - байт-код
+        3 => 1,  // CompileToBytecode - код
+        4 => 2,  // CallFunction - имя функции, аргументы (JSON)
+        5 => 2,  // SetGlobal - имя переменной, значение (JSON)
+        6 => 1,  // GetGlobal - имя переменной
+        7 => 2,  // AddPackage - имя пакета, код
+        8 => 2,  // LoadPackageFromFile - имя пакета, путь к файлу
+        9 => 0,  // GetPackages - без параметров
+        10 => 0, // Reset - без параметров
         _ => 0,
     }
 }
 
-// Соответствие функций Rust функциям компоненты
-// Вызовы должны быть обернуты в Box::new
 pub fn cal_func(obj: &mut AddIn, num: usize, params: &mut [Variant]) -> Box<dyn getset::ValueType> {
+
+    let mut engine = match obj.lua_engine.lock() {
+        Ok(engine) => engine,
+        Err(_) => return Box::new(format_json_error("Failed to lock Lua engine")),
+    };
+
     match num {
-        0 => {
-            let schedule = params[0].get_string().unwrap_or(String::new());
-            Box::new(obj.init_schedule(schedule))
+        0 => { // ExecuteString
+            if params.is_empty() {
+                return Box::new(format_json_error("Missing code parameter"));
+            }
+            let code = params[0].get_string().unwrap_or_default();
+            match engine.execute_string(&code) {
+                Ok(result) => Box::new(json!({"result": true, "data": result}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
         },
-        1 => {
-            Box::new(obj.next_event())
+        1 => { // ExecuteFile
+            if params.is_empty() {
+                return Box::new(format_json_error("Missing file path parameter"));
+            }
+            let path = params[0].get_string().unwrap_or_default();
+            match engine.execute_file(&path) {
+                Ok(result) => Box::new(json!({"result": true, "data": result}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
         },
-        2 => {
-            let name = params[0].get_string().unwrap_or(String::new());
-            let schedule = params[1].get_string().unwrap_or(String::new());
-            Box::new(obj.add_job(&name, &schedule))
+        2 => { // ExecuteBytecode
+            if params.is_empty() {
+                return Box::new(format_json_error("Missing bytecode parameter"));
+            }
+            let bytecode = params[0].get_blob().unwrap_or(&[]).to_vec();
+            match engine.execute_bytecode(&bytecode) {
+                Ok(result) => Box::new(json!({"result": true, "data": result}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
         },
-        3 => {
-            let name = params[0].get_string().unwrap_or(String::new());
-            Box::new(obj.remove_job(&name))
+        3 => { // CompileToBytecode
+            if params.is_empty() {
+                return Box::new(format_json_error("Missing code parameter"));
+            }
+            let code = params[0].get_string().unwrap_or_default();
+            match engine.compile_to_bytecode(&code) {
+                Ok(bytecode) => {
+                    let mut result = Vec::<u8>::new();
+                    result.extend_from_slice(&bytecode);
+                    Box::new(result)
+                },
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
         },
-        4 => {
-            let name = params[0].get_string().unwrap_or(String::new());
-            let new_schedule = params[1].get_string().unwrap_or(String::new());
-            Box::new(obj.update_job(&name, &new_schedule))
+        4 => { // CallFunction
+            if params.len() < 2 {
+                return Box::new(format_json_error("Missing function name or arguments"));
+            }
+            let func_name = params[0].get_string().unwrap_or_default();
+            let args_json = params[1].get_string().unwrap_or_default();
+            
+            let args: Vec<serde_json::Value> = match serde_json::from_str(&args_json) {
+                Ok(args) => args,
+                Err(e) => return Box::new(format_json_error(&format!("Invalid JSON arguments: {}", e))),
+            };
+            
+            match engine.call_function(&func_name, args) {
+                Ok(result) => Box::new(json!({"result": true, "data": result}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
         },
-        5 => {
-            let name = params[0].get_string().unwrap_or(String::new());
-            Box::new(obj.disable_job(&name))
+        5 => { // SetGlobal
+            if params.len() < 2 {
+                return Box::new(format_json_error("Missing variable name or value"));
+            }
+            let var_name = params[0].get_string().unwrap_or_default();
+            let value_json = params[1].get_string().unwrap_or_default();
+            
+            let value: serde_json::Value = match serde_json::from_str(&value_json) {
+                Ok(value) => value,
+                Err(e) => return Box::new(format_json_error(&format!("Invalid JSON value: {}", e))),
+            };
+            
+            match engine.set_global(&var_name, value) {
+                Ok(_) => Box::new(json!({"result": true}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
         },
-        6 => {
-            let name = params[0].get_string().unwrap_or(String::new());
-            Box::new(obj.enable_job(&name))
+        6 => { // GetGlobal
+            if params.is_empty() {
+                return Box::new(format_json_error("Missing variable name"));
+            }
+            let var_name = params[0].get_string().unwrap_or_default();
+            match engine.get_global(&var_name) {
+                Ok(result) => Box::new(json!({"result": true, "data": result}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
         },
-        7 => {
-            Box::new(obj.get_job_list())
+        7 => { // AddPackage
+            if params.len() < 2 {
+                return Box::new(format_json_error("Missing package name or code"));
+            }
+            let package_name = params[0].get_string().unwrap_or_default();
+            let code = params[1].get_string().unwrap_or_default();
+            
+            match engine.add_package(package_name, code) {
+                Ok(_) => Box::new(json!({"result": true}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
         },
-        _ => Box::new(false)
+        8 => { // LoadPackageFromFile
+            if params.len() < 2 {
+                return Box::new(format_json_error("Missing package name or file path"));
+            }
+            let package_name = params[0].get_string().unwrap_or_default();
+            let file_path = params[1].get_string().unwrap_or_default();
+            
+            match engine.load_package_from_file(package_name, &file_path) {
+                Ok(_) => Box::new(json!({"result": true}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
+        },
+        9 => { // GetPackages
+            let packages = engine.get_packages();
+            Box::new(json!({"result": true, "data": packages}).to_string())
+        },
+        10 => { // Reset
+            match engine.reset() {
+                Ok(_) => Box::new(json!({"result": true}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
+        },
+        _ => Box::new(format_json_error("Unknown method"))
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-
-// ПОЛЯ КОМПОНЕНТЫ ---------------------------------------------------------------------------------
-
-// Синонимы
 pub const PROPS: &[&[u16]] = &[];
 
 pub struct AddIn {
-    scheduler: Option<Arc<Mutex<CronScheduler>>>
+    lua_engine: Arc<Mutex<LuaEngine>>
 }
 
 impl AddIn {
     pub fn new() -> Self {
+        let engine = LuaEngine::new().expect("Failed to create Lua engine");
         AddIn {
-            scheduler: None
-        }
-    }
-
-    pub fn init_schedule(&mut self, schedule: String) -> String {
-        let schedule_data = if schedule.trim().is_empty() {
-            Vec::new()
-        } else {
-            let data = match serde_json::from_str(schedule.as_str()) {
-                Ok(v) => v,
-                Err(e) => return format_json_error(&e.to_string())
-            };
-
-            match value_to_vec(data) {
-                Ok(v) => v,
-                Err(e) => return format_json_error(&e.to_string())
-            }
-        };
-
-        let scheduler = match CronScheduler::new(schedule_data) {
-            Ok(s) => s,
-            Err(e) => return format_json_error(&e.to_string())
-        };
-
-        self.scheduler = Some(Arc::new(Mutex::new(scheduler)));
-        json!({"result": true}).to_string()
-    }
-
-    pub fn next_event(&mut self) -> String {
-        match &self.scheduler {
-            Some(scheduler) => {
-
-                let scheduler_ref = scheduler.clone();
-
-                let s = match scheduler_ref.lock(){
-                    Ok(s) => s,
-                    Err(e) => return format_json_error(&e.to_string())
-                };
-                s.next_event().unwrap_or(String::from(""))
-            },
-            None => format_json_error("Init scheduler first")
-        }
-    }
-
-    pub fn add_job(&mut self, name: &str, schedule: &str) -> String {
-        match &self.scheduler {
-            Some(scheduler) => {
-                let sch = match scheduler.lock(){
-                    Ok(s) => s,
-                    Err(e) => return format_json_error(&e.to_string())
-                };
-                match sch.add_job(name, schedule) {
-                    Ok(_) => json!({"result": true}).to_string(),
-                    Err(e) => format_json_error(&e.to_string())
-                }
-            },
-            None => format_json_error("Init scheduler first")
-        }
-    }
-
-    pub fn remove_job(&mut self, name: &str) -> String {
-        match self.scheduler.as_mut() {
-            Some(s) => {
-                let sch = match s.lock(){
-                    Ok(s) => s,
-                    Err(e) => return format_json_error(&e.to_string())
-                };
-                match sch.remove_job(name) {
-                    Ok(_) => json!({"result": true}).to_string(),
-                    Err(e) => format_json_error(&e.to_string())
-                }
-            },
-            None => format_json_error("Init scheduler first")
-        }
-    }
-
-    pub fn update_job(&mut self, name: &str, new_schedule: &str) -> String {
-        match self.scheduler.as_mut() {
-            Some(s) => {
-
-                let sch = match s.lock(){
-                    Ok(s) => s,
-                    Err(e) => return format_json_error(&e.to_string())
-                };
-                match sch.update_job_schedule(name, new_schedule) {
-                    Ok(_) => json!({"result": true}).to_string(),
-                    Err(e) => format_json_error(&e.to_string())
-                }
-            },
-            None => format_json_error("Init scheduler first")
-        }
-    }
-
-    pub fn disable_job(&mut self, name: &str) -> String {
-        match self.scheduler.as_mut() {
-            Some(s) => {
-
-                let sch = match s.lock(){
-                    Ok(s) => s,
-                    Err(e) => return format_json_error(&e.to_string())
-                };
-
-                match sch.disable_job(name) {
-                    Ok(_) => json!({"result": true}).to_string(),
-                    Err(e) => format_json_error(&e.to_string())
-                }
-            },
-            None => format_json_error("Init scheduler first")
-        }
-    }
-
-    pub fn enable_job(&mut self, name: &str) -> String {
-        match self.scheduler.as_mut() {
-            Some(s) => {
-
-                let sch = match s.lock(){
-                    Ok(s) => s,
-                    Err(e) => return format_json_error(&e.to_string())
-                };
-
-                match sch.enable_job(name) {
-                    Ok(_) => json!({"result": true}).to_string(),
-                    Err(e) => format_json_error(&e.to_string())
-                }
-            },
-            None => format_json_error("Init scheduler first")
-        }
-    }
-
-    pub fn get_job_list(&mut self) -> String {
-        match self.scheduler.as_mut() {
-            Some(s) => {
-
-                let sch = match s.lock(){
-                    Ok(s) => s,
-                    Err(e) => return format_json_error(&e.to_string())
-                };
-
-                match sch.get_job_list() {
-                    Ok(jobs) => json!({"result": true, "jobs": jobs}).to_string(),
-                    Err(e) => format_json_error(&e.to_string())
-                }
-            },
-            None => format_json_error("Init scheduler first")
+            lua_engine: Arc::new(Mutex::new(engine))
         }
     }
 
@@ -245,59 +200,11 @@ impl AddIn {
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ -------------------------------------------------------------------------
-
 pub fn format_json_error(error: &str) -> String {
     json!({"result": false, "error": error}).to_string()
 }
 
-pub fn value_to_vec(value: Value) -> Result<Vec<(String, String)>, String> {
-    let mut result = Vec::new();
-
-    if let Value::Object(obj) = value {
-        for (name, schedule_value) in obj {
-            // Получаем строковое значение
-            let schedule_str = match schedule_value {
-                Value::String(s) => s,
-                Value::Number(n) => n.to_string(), // Если число, конвертируем в строку
-                _ => return Err(format!("Invalid schedule type for key '{}': expected string or number", name))
-            };
-
-            // Очищаем строку от лишних пробелов и символов
-            let cleaned_schedule = schedule_str
-                .trim() // Убираем пробелы в начале и конце
-                .replace('\n', "") // Убираем переносы строк
-                .replace('^', "") // Убираем символы ^
-                .replace("  ", " ") // Заменяем двойные пробелы на одинарные
-                .trim() // Еще раз убираем пробелы по краям
-                .to_string();
-
-            // Проверяем, что строка не пустая после очистки
-            if cleaned_schedule.is_empty() {
-                return Err(format!("Empty schedule after cleaning for key '{}'", name));
-            }
-
-            result.push((name, cleaned_schedule));
-        }
-    } else {
-        return Err("Expected JSON object".to_string());
-    }
-
-    // Проверяем, что есть хотя бы одно событие
-    if result.is_empty() {
-        return Err("No events found in JSON object".to_string());
-    }
-
-    Ok(result)
-}
-
-// УНИЧТОЖЕНИЕ ОБЪЕКТА -----------------------------------------------------------------------------
-
-// Обработка удаления объекта
 impl Drop for AddIn {
     fn drop(&mut self) {
-        // Планировщик автоматически завершит все задачи при drop
     }
 }
