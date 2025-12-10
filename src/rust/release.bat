@@ -3,8 +3,8 @@
 set THIS_DIR=%~dp0
 set "THIS_DIR=%THIS_DIR:\=/%"
 set VCPKG_ROOT=R:\Repos\vcpkg
-set CARGO_NAME=luna
-set LIB_NAME=Luna
+set CARGO_NAME=lyna
+set LIB_NAME=Lyna
 
 :: Создать папку для артефактов
 set OUTPUT_DIR=artifacts
