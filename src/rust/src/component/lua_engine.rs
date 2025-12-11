@@ -42,6 +42,12 @@ impl LuaEngine {
         }
     }
 
+    pub fn execute_bytecode_file<P: AsRef<Path>>(&self, path: P) -> Result<JsonValue, String> {
+        let code = std::fs::read(path)
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+        self.execute_bytecode(&code)
+    }
+
     pub fn compile_to_bytecode(&self, code: &str) -> Result<Vec<u8>, String> {
         match self.lua.load(code).into_function() {
             Ok(func) => Ok(func.dump(false)),

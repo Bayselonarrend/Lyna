@@ -14,14 +14,15 @@ pub const METHODS: &[&[u16]] = &[
     name!("ExecuteString"),       // 0 - Выполнить Lua код из строки
     name!("ExecuteFile"),         // 1 - Выполнить Lua код из файла
     name!("ExecuteBytecode"),     // 2 - Выполнить предкомпилированный байт-код
-    name!("CompileToBytecode"),   // 3 - Компилировать код в байт-код
-    name!("CallFunction"),        // 4 - Вызвать функцию Lua
-    name!("SetGlobal"),           // 5 - Установить глобальную переменную
-    name!("GetGlobal"),           // 6 - Получить глобальную переменную
-    name!("AddPackage"),          // 7 - Добавить пакет Lua
-    name!("LoadPackageFromFile"), // 8 - Загрузить пакет из файла
-    name!("GetPackages"),         // 9 - Получить список пакетов
-    name!("Reset"),               // 10 - Сбросить состояние Lua
+    name!("ExecuteBytecodeFile"), // 3 - Выполнить предкомпилированный байт-код
+    name!("CompileToBytecode"),   // 4 - Компилировать код в байт-код
+    name!("CallFunction"),        // 5 - Вызвать функцию Lua
+    name!("SetGlobal"),           // 6 - Установить глобальную переменную
+    name!("GetGlobal"),           // 7 - Получить глобальную переменную
+    name!("AddPackage"),          // 8 - Добавить пакет Lua
+    name!("LoadPackageFromFile"), // 9 - Загрузить пакет из файла
+    name!("GetPackages"),         // 10 - Получить список пакетов
+    name!("Reset"),               // 11 - Сбросить состояние Lua
 ];
 
 pub fn get_params_amount(num: usize) -> usize {
@@ -29,14 +30,15 @@ pub fn get_params_amount(num: usize) -> usize {
         0 => 1,  // ExecuteString - код
         1 => 1,  // ExecuteFile - путь к файлу
         2 => 1,  // ExecuteBytecode - байт-код
-        3 => 1,  // CompileToBytecode - код
-        4 => 2,  // CallFunction - имя функции, аргументы (JSON)
-        5 => 2,  // SetGlobal - имя переменной, значение (JSON)
-        6 => 1,  // GetGlobal - имя переменной
-        7 => 2,  // AddPackage - имя пакета, код
-        8 => 2,  // LoadPackageFromFile - имя пакета, путь к файлу
-        9 => 0,  // GetPackages - без параметров
-        10 => 0, // Reset - без параметров
+        3 => 1,  // ExecuteBytecodeFile - путь к файлу
+        4 => 1,  // CompileToBytecode - код
+        5 => 2,  // CallFunction - имя функции, аргументы (JSON)
+        6 => 2,  // SetGlobal - имя переменной, значение (JSON)
+        7 => 1,  // GetGlobal - имя переменной
+        8 => 2,  // AddPackage - имя пакета, код
+        9 => 2,  // LoadPackageFromFile - имя пакета, путь к файлу
+        10 => 0,  // GetPackages - без параметров
+        11 => 0, // Reset - без параметров
         _ => 0,
     }
 }
@@ -79,7 +81,17 @@ pub fn cal_func(obj: &mut AddIn, num: usize, params: &mut [Variant]) -> Box<dyn 
                 Err(e) => Box::new(format_json_error(&e.to_string())),
             }
         },
-        3 => { // CompileToBytecode
+        3 => { // ExecuteBytecodeFile
+            if params.is_empty() {
+                return Box::new(format_json_error("Missing file path parameter"));
+            }
+            let path = params[0].get_string().unwrap_or_default();
+            match engine.execute_bytecode_file(&path) {
+                Ok(result) => Box::new(json!({"result": true, "data": result}).to_string()),
+                Err(e) => Box::new(format_json_error(&e.to_string())),
+            }
+        }
+        4 => { // CompileToBytecode
             if params.is_empty() {
                 return Box::new(format_json_error("Missing code parameter"));
             }
@@ -93,7 +105,7 @@ pub fn cal_func(obj: &mut AddIn, num: usize, params: &mut [Variant]) -> Box<dyn 
                 Err(e) => Box::new(format_json_error(&e.to_string())),
             }
         },
-        4 => { // CallFunction
+        5 => { // CallFunction
             if params.len() < 2 {
                 return Box::new(format_json_error("Missing function name or arguments"));
             }
@@ -110,7 +122,7 @@ pub fn cal_func(obj: &mut AddIn, num: usize, params: &mut [Variant]) -> Box<dyn 
                 Err(e) => Box::new(format_json_error(&e.to_string())),
             }
         },
-        5 => { // SetGlobal
+        6 => { // SetGlobal
             if params.len() < 2 {
                 return Box::new(format_json_error("Missing variable name or value"));
             }
@@ -137,7 +149,7 @@ pub fn cal_func(obj: &mut AddIn, num: usize, params: &mut [Variant]) -> Box<dyn 
                 Err(e) => Box::new(format_json_error(&e.to_string())),
             }
         },
-        6 => { // GetGlobal
+        7 => { // GetGlobal
             if params.is_empty() {
                 return Box::new(format_json_error("Missing variable name"));
             }
@@ -147,7 +159,7 @@ pub fn cal_func(obj: &mut AddIn, num: usize, params: &mut [Variant]) -> Box<dyn 
                 Err(e) => Box::new(format_json_error(&e.to_string())),
             }
         },
-        7 => { // AddPackage
+        8 => { // AddPackage
             if params.len() < 2 {
                 return Box::new(format_json_error("Missing package name or code"));
             }
@@ -159,7 +171,7 @@ pub fn cal_func(obj: &mut AddIn, num: usize, params: &mut [Variant]) -> Box<dyn 
                 Err(e) => Box::new(format_json_error(&e.to_string())),
             }
         },
-        8 => { // LoadPackageFromFile
+        9 => { // LoadPackageFromFile
             if params.len() < 2 {
                 return Box::new(format_json_error("Missing package name or file path"));
             }
@@ -171,11 +183,11 @@ pub fn cal_func(obj: &mut AddIn, num: usize, params: &mut [Variant]) -> Box<dyn 
                 Err(e) => Box::new(format_json_error(&e.to_string())),
             }
         },
-        9 => { // GetPackages
+        10 => { // GetPackages
             let packages = engine.get_packages();
             Box::new(json!({"result": true, "data": packages}).to_string())
         },
-        10 => { // Reset
+        11 => { // Reset
             match engine.reset() {
                 Ok(_) => Box::new(json!({"result": true}).to_string()),
                 Err(e) => Box::new(format_json_error(&e.to_string())),
