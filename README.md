@@ -1,4 +1,4 @@
-<img src="media/logo_m.png?1" align="left" width="64"> 
+<img src="media/logo_m.png" align="left" width="64"> 
 <h1>Луна</h1>
 <p>Механизм запуска Lua-скриптов внутри OneScript и 1С</p>
 
