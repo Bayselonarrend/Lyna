@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mdclass:ExternalDataProcessor xmlns:mdclass="http://g5.1c.ru/v8/dt/metadata/mdclass" uuid="a7e2966b-a476-479c-93d2-4ea6bb248782">
+  <producedTypes>
+    <objectType typeId="44f7cd1c-a5ee-43e7-98cf-fcbdc21b6776" valueTypeId="3bed8d8d-9e53-4cad-a932-4ad3b484b229"/>
+  </producedTypes>
+  <name>Lyna</name>
+  <synonym>
+    <key>ru</key>
+    <value>Lyna</value>
+  </synonym>
+  <containedObjects classId="c3831ec8-d8d5-4f93-8a22-f9bfae07327f" objectId="7455d302-cb11-4acc-ab02-d08db6c183d0"/>
+  <templates uuid="67262ac6-6fc2-428e-82ac-d48bdea6e2c3">
+    <name>Lua54</name>
+    <synonym>
+      <key>ru</key>
+      <value>Lua54</value>
+    </synonym>
+    <templateType>AddIn</templateType>
+  </templates>
+  <templates uuid="780e10e5-f85f-422e-b5c6-4c6d2eb49f62">
+    <name>LuaJIT</name>
+    <synonym>
+      <key>ru</key>
+      <value>Lua JIT</value>
+    </synonym>
+    <templateType>AddIn</templateType>
+  </templates>
+</mdclass:ExternalDataProcessor>
