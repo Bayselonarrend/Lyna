@@ -1,5 +1,5 @@
 use crate::component::lua_engine::LuaEngine;
-use mlua::Value;
+use mlua::{Integer, Value};
 use serde_json::Value as JsonValue;
 
 impl LuaEngine {
@@ -52,7 +52,10 @@ impl LuaEngine {
             JsonValue::Bool(b) => Ok(Value::Boolean(b)),
             JsonValue::Number(n) => {
                 if let Some(i) = n.as_i64() {
-                    Ok(Value::Integer(i))
+                    match Integer::try_from(i) {
+                        Ok(li) => Ok(Value::Integer(li)),
+                        Err(_) => Ok(Value::Number(i as f64)),
+                    }
                 } else if let Some(f) = n.as_f64() {
                     Ok(Value::Number(f))
                 } else {

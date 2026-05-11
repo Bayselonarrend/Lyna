@@ -27,8 +27,11 @@ set "VARIANT_NAME=%~1"
 set "BACKEND_FEATURE=%~2"
 if defined BACKEND_FEATURE (
   set "CARGO_EXTRA=--no-default-features --features %BACKEND_FEATURE%"
+  :: LuaJIT + zig/lld: unwind-символы для линковки luajit (см. zig/issues/14089)
+  set "WSL_LUAJIT_LDFLAGS=TARGET_LDFLAGS=-lunwind"
 ) else (
   set "CARGO_EXTRA="
+  set "WSL_LUAJIT_LDFLAGS="
 )
 
 if exist "%OUTPUT_DIR%" rmdir /S /Q "%OUTPUT_DIR%"
@@ -43,7 +46,7 @@ cargo build --release --target x86_64-pc-windows-msvc %CARGO_EXTRA%
 if errorlevel 1 exit /b 1
 
 :: --- x86_64-unknown-linux-gnu ---
-wsl -d OracleLinux_9_1 env LIBRARY_PATH=/usr/lib64 OPENSSL_DIR=/usr cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.17 %CARGO_EXTRA%
+wsl -d OracleLinux_9_1 env LIBRARY_PATH=/usr/lib64 OPENSSL_DIR=/usr %WSL_LUAJIT_LDFLAGS% cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.17 %CARGO_EXTRA%
 if errorlevel 1 exit /b 1
 
 :: --- i686-pc-windows-msvc ---
@@ -55,7 +58,7 @@ cargo build --release --target i686-pc-windows-msvc %CARGO_EXTRA%
 if errorlevel 1 exit /b 1
 
 :: --- i686-unknown-linux-gnu ---
-wsl -d OracleLinux_9_1 env LIBRARY_PATH=/usr/lib OPENSSL_DIR=/usr OPENSSL_LIB_DIR=/usr/lib OPENSSL_INCLUDE_DIR=/usr/include cargo zigbuild --release --target i686-unknown-linux-gnu.2.17 %CARGO_EXTRA%
+wsl -d OracleLinux_9_1 env LIBRARY_PATH=/usr/lib OPENSSL_DIR=/usr OPENSSL_LIB_DIR=/usr/lib OPENSSL_INCLUDE_DIR=/usr/include %WSL_LUAJIT_LDFLAGS% cargo zigbuild --release --target i686-unknown-linux-gnu.2.17 %CARGO_EXTRA%
 if errorlevel 1 exit /b 1
 
 copy /y target\x86_64-pc-windows-msvc\release\%CARGO_NAME%.dll "%OUTPUT_DIR%\AddIn_x64_windows.dll"
