@@ -4,7 +4,7 @@ use crate::component::lua_engine::LuaEngine;
 impl LuaEngine {
 
     pub fn add_package(&mut self, name: String, code: String) -> Result<(), String> {
-
+        
         let result = match self.lua.load(&code).eval::<mlua::Value>() {
             Ok(value) => value,
             Err(e) => return Err(format!("Package execution error: {}", e)),

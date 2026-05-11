@@ -205,7 +205,8 @@ pub struct AddIn {
 
 impl AddIn {
     pub fn new() -> Self {
-        let engine = LuaEngine::new().expect("Failed to create Lua engine");
+        let engine = LuaEngine::new()
+            .unwrap_or_else(|e| panic!("LuaEngine init failed: {}", e));
         AddIn {
             lua_engine: Arc::new(Mutex::new(engine))
         }

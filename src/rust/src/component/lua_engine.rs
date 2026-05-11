@@ -1,7 +1,23 @@
 use std::collections::HashMap;
 use std::path::Path;
-use mlua::{Lua, Value};
+#[cfg(feature = "luajit")]
+use mlua::LuaOptions;
+use mlua::{Lua, StdLib, Value};
 use serde_json::Value as JsonValue;
+
+#[inline]
+fn default_std_libs() -> StdLib {
+    #[cfg(feature = "luajit")]
+    {
+        // `FFI` не входит в `ALL_SAFE`; для WinAPI из Lua нужен `require("ffi")`.
+        // Загрузка возможна только в «unsafe» VM — см. `Lua::unsafe_new_with` ниже.
+        StdLib::ALL_SAFE | StdLib::FFI
+    }
+    #[cfg(not(feature = "luajit"))]
+    {
+        StdLib::ALL_SAFE
+    }
+}
 
 pub struct LuaEngine {
     pub(crate) lua: Lua,
@@ -10,12 +26,20 @@ pub struct LuaEngine {
 
 impl LuaEngine {
     pub fn new() -> Result<Self, String> {
-        let lua = Lua::new();
+        // LuaJIT + FFI: `Lua::new()` помечает VM как «safe»; тогда `load_std_libs(FFI)` даёт
+        // SafetyError. Нужна небезопасная инициализация по контракту mlua.
+        #[cfg(feature = "luajit")]
+        let lua = unsafe { Lua::unsafe_new_with(default_std_libs(), LuaOptions::default()) };
 
-        if let Err(e) = lua.load_std_libs(mlua::StdLib::ALL_SAFE) {
-            return Err(format!("Failed to load Lua standard libraries: {}", e));
-        }
-        
+        #[cfg(not(feature = "luajit"))]
+        let lua = {
+            let lua = Lua::new();
+            if let Err(e) = lua.load_std_libs(default_std_libs()) {
+                return Err(format!("Failed to load Lua standard libraries: {}", e));
+            }
+            lua
+        };
+
         Ok(LuaEngine {
             lua,
             packages: HashMap::new(),
@@ -56,9 +80,16 @@ impl LuaEngine {
     }
 
     pub fn reset(&mut self) -> Result<(), String> {
-        self.lua = Lua::new();
-        if let Err(e) = self.lua.load_std_libs(mlua::StdLib::ALL_SAFE) {
-            return Err(format!("Failed to load Lua standard libraries: {}", e));
+        #[cfg(feature = "luajit")]
+        {
+            self.lua = unsafe { Lua::unsafe_new_with(default_std_libs(), LuaOptions::default()) };
+        }
+        #[cfg(not(feature = "luajit"))]
+        {
+            self.lua = Lua::new();
+            if let Err(e) = self.lua.load_std_libs(default_std_libs()) {
+                return Err(format!("Failed to load Lua standard libraries: {}", e));
+            }
         }
         self.packages.clear();
         Ok(())
